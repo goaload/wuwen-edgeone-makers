@@ -1,0 +1,57 @@
+import * as T from './vendor/three.module.js';
+import {SCALE,HEIGHT,floorSections,rooms,wallSegments,toWorld,windowOpenings,windowProfile} from './plan.js';
+import {objects} from './furniture.js';
+import {receptionColors} from './reception.js';
+import {officeDecals,officeArtwork} from './office-art.js';
+import {createPixelTexture} from './pixel-textures.js';
+import {partner7Colors} from './partner7.js';
+import {workplaceColors} from './workplace.js';
+import {talk1Colors} from './talk-rooms.js';
+export function createWorld(container){let renderer=null;try{renderer=new T.WebGLRenderer({antialias:!matchMedia('(pointer:coarse)').matches,powerPreference:'high-performance'});}catch{}
+ const scene=new T.Scene();scene.background=new T.Color('#eceee4');scene.fog=new T.Fog('#eceee4',65,130);const camera=new T.PerspectiveCamera(43,innerWidth/innerHeight,.06,160);camera.rotation.order='YXZ';
+ const wallMeshes=[],heads=[],labels=[],windowParts=[],receptionDetails=[],ceiling=new T.Group();scene.add(ceiling);const boxGeo=new T.BoxGeometry(1,1,1);
+ let seed=37;const random=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
+ const colors={wood:'#c5ad83',floor:'#d7c8a5',stone:'#b9c1af',dark:'#4c5b50',pale:'#f6f1df',blue:'#7b9790',red:'#b27c5b',green:'#95a876',leaf:'#768f5a',hall:'#d9dacc',glass:'#c9ded0',...receptionColors,...workplaceColors,...partner7Colors,...talk1Colors};
+ const mats={};for(const [k,c] of Object.entries(colors)){const cv=document.createElement('canvas');cv.width=cv.height=32;const g=cv.getContext('2d');g.fillStyle=c;g.fillRect(0,0,32,32);for(let i=0;i<80;i++){g.fillStyle=random()>.5?'#ffffff10':'#00000009';g.fillRect(Math.floor(random()*32),Math.floor(random()*32),2,2);}const tex=new T.CanvasTexture(cv);tex.colorSpace=T.SRGBColorSpace;tex.magFilter=T.NearestFilter;mats[k]=new T.MeshStandardMaterial({map:tex,roughness:.9});}mats.glass=new T.MeshStandardMaterial({color:'#bcd4c3',transparent:true,opacity:.24,roughness:.15,side:T.DoubleSide});
+ // Homecraft's 16-pixel procedural materials, with local photo materials retained.
+ for(const [key,tile] of Object.entries({wood:'oak',workCarpet:'work_carpet',floor:'wood_floor',hall:'concrete',white:'plaster',pale:'white',black:'steel',oak:'oak',oakLight:'maple',oakDark:'walnut',plant:'leaves_olive',plantLight:'leaves_olive'})){mats[key].map.dispose();mats[key].map=createPixelTexture(tile);}
+ mats.workCarpet.map.wrapS=mats.workCarpet.map.wrapT=T.RepeatWrapping;
+ // Pixel-sized veining and carpet fibers distinguish the photo-based materials.
+ for(const key of ['marble','carpet']){const ctx=mats[key].map.image.getContext('2d');if(key==='marble'){ctx.strokeStyle='#9da6a666';ctx.lineWidth=.7;for(let j=0;j<4;j++){ctx.beginPath();let x=j*9-5;ctx.moveTo(x,0);for(let y=3;y<=34;y+=3){x+=1.4+(random()-.5)*4;ctx.lineTo(x,y);}ctx.stroke();}}else{for(let j=0;j<250;j++){ctx.fillStyle=j%2?'#d4d4d422':'#40464b22';ctx.fillRect(Math.floor(random()*32),Math.floor(random()*32),1,1);}}mats[key].map.needsUpdate=true;}
+ const uvGeometries=new Map();
+ function floorGeometry(w,d){const key=w+':'+d;if(uvGeometries.has(key))return uvGeometries.get(key);const g=boxGeo.clone(),uv=g.attributes.uv;for(const face of [2,3])for(let j=0;j<4;j++){const k=face*4+j;uv.setXY(k,uv.getX(k)*Math.max(1,d/SCALE),uv.getY(k)*Math.max(1,w/SCALE));}uv.needsUpdate=true;uvGeometries.set(key,g);return g;}
+ const box=(px,py,w,d,h,mat='wood',base=0,parent=scene)=>{const mesh=new T.Mesh(h<.08&&w>45&&d>45?floorGeometry(w,d):boxGeo,mats[mat]);const [x,z]=toWorld(px,py);mesh.position.set(x,base+h/2,z);mesh.scale.set(d/SCALE,h,w/SCALE);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;};
+ const plaque=(str,px,py,y,width=1.4)=>{const c=document.createElement('canvas');c.width=512;c.height=96;const ctx=c.getContext('2d');ctx.fillStyle='#f9f6e9';ctx.fillRect(0,0,512,96);ctx.fillStyle='#526749';ctx.font='32px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(str,256,48,480);const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;const sprite=new T.Sprite(new T.SpriteMaterial({map:tex,depthTest:false,transparent:true}));const [x,z]=toWorld(px,py);sprite.position.set(x,y,z);sprite.scale.set(width,width*96/512,1);scene.add(sprite);return sprite;};
+ // A floating floor slab follows the traced outline, without inventing an exterior.
+ for(const [l,t,r,b] of floorSections){
+  box((l+r)/2,(t+b)/2,r-l+2,b-t+2,.24,'stone',-.24);
+  box((l+r)/2,(t+b)/2,r-l,b-t,.025,'workCarpet').userData.walkFloor=true;
+  box((l+r)/2,(t+b)/2,r-l,b-t,.08,'pale',HEIGHT+.06,ceiling);
+ }
+ for(const q of rooms){
+  const [l,t,r,b]=q.bounds;
+  labels.push(plaque(q.name,(l+r)/2,(t+b)/2,1.28,q.id==='meeting'?1.5:1.12));
+ }
+ const staticFurniture=[];
+ for(const o of objects){const mesh=box(o.px,o.py,o.w,o.d,o.h,o.mat,o.base+.055,o.overhead?ceiling:scene);if(o.kind==='carpet')mesh.userData.walkFloor=true;if(!o.cutaway&&!o.overhead&&!(o.zone&&o.base>1.15)&&o.kind!=='carpet')staticFurniture.push(mesh);if(o.cutaway)wallMeshes.push({mesh,base:o.base+.055,full:o.h});else if(o.zone&&o.base>1.15&&!o.overhead)receptionDetails.push(mesh);}
+ // Batch fixed furniture by material, reducing draw calls on phones.
+ const batches=new Map();for(const m of staticFurniture){const k=m.material.uuid+':'+m.geometry.uuid;if(!batches.has(k))batches.set(k,[]);batches.get(k).push(m);}for(const group of batches.values()){if(group.length<3)continue;const batch=new T.InstancedMesh(group[0].geometry,group[0].material,group.length);group.forEach((m,i)=>{m.updateMatrix();batch.setMatrixAt(i,m.matrix);m.removeFromParent();});batch.castShadow=batch.receiveShadow=true;batch.computeBoundingSphere();scene.add(batch);}
+ const addWall=(s,a,b,base=0,height=HEIGHT,type='wall')=>{const horizontal=a[1]===b[1];const mesh=box((a[0]+b[0])/2,(a[1]+b[1])/2,horizontal?Math.abs(b[0]-a[0])+4:7,horizontal?7:Math.abs(b[1]-a[1])+4,height,'white',base);if(type==='wall')wallMeshes.push({mesh,base,full:height});else heads.push(mesh);return mesh;};
+ for(const s of wallSegments()){const isRight=s.a[0]===830&&s.b[0]===830,isTop=s.a[1]===220&&s.b[1]===220;
+ if(isRight||isTop){const axis=isRight?1:0,start=Math.min(s.a[axis],s.b[axis]),end=Math.max(s.a[axis],s.b[axis]);const ranges=windowOpenings.filter(w=>w.axis===(isRight?'v':'h')).sort((a,b)=>a.start-b.start);let cursor=start;for(const opening of ranges){const a=Math.max(start,opening.start),b=Math.min(end,opening.end);if(b<=a)continue;const {sill,top}=windowProfile(opening.kind,opening),point=v=>isRight?[830,v]:[v,220];if(a>cursor)addWall(s,point(cursor),point(a));addWall(s,point(a),point(b),0,sill);addWall(s,point(a),point(b),top,HEIGHT-top,'head');const ca=point((a+b)/2),pane=box(...ca,isRight?2:b-a,isRight?b-a:2,top-sill,'glass',sill);pane.userData.windowKind=opening.kind;windowParts.push(pane);for(const v of [a,(a+b)/2,b]){const p=point(v);windowParts.push(box(...p,4,4,top-sill,'wood',sill));}cursor=b;}if(cursor<end)addWall(s,isRight?[830,cursor]:[cursor,220],isRight?[830,end]:[end,220]);
+ }else addWall(s,s.a,s.b);
+ }
+ for(const q of rooms.filter(q=>q.door)){const {side,gap:[a,b]}=q.door,[l,t,r,bt]=q.bounds;const vertical=side==='left'||side==='right',px=vertical?(side==='left'?l:r):(a+b)/2,py=vertical?(a+b)/2:(side==='top'?t:bt);const lintel=box(px,py,vertical?7:b-a,vertical?b-a:7,HEIGHT-2.18,'white',2.18);heads.push(lintel);for(const v of [a+1,b-1]){const frame=box(vertical?px:v,vertical?v:py,vertical?9:2,vertical?2:9,2.18,'wood');wallMeshes.push({mesh:frame,base:0,full:2.18});}const label=plaque(q.name,px+(side==='left'?-7:side==='right'?7:0),py+(side==='top'?-7:side==='bottom'?7:0),2.47,.93);label.userData.door=true;label.material.depthTest=true;label.material.depthWrite=false;labels.push(label);}
+ // Signs are fixed to their actual wall planes rather than floating billboards.
+ for(const d of officeDecals){const texture=new T.TextureLoader().load('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(officeArtwork[d.id]));texture.colorSpace=T.SRGBColorSpace;const mesh=new T.Mesh(new T.PlaneGeometry(d.width,d.height),new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false}));const [x,z]=toWorld(d.px,d.py);mesh.position.set(x,d.y+.055,z);mesh.rotation.y={front:0,back:Math.PI,south:Math.PI/2,north:-Math.PI/2}[d.normal];scene.add(mesh);receptionDetails.push(mesh);}
+ for(const py of [1028,1063,1098,1133]){const [x,z]=toWorld(416,py),[tx,tz]=toWorld(472,py);const light=new T.SpotLight('#ffe1ab',5.5,4.8,Math.PI/5,.65,1.3);light.position.set(x,2.58,z);light.target.position.set(tx,1.55,tz);ceiling.add(light,light.target);}
+ scene.add(new T.HemisphereLight('#f9f7e5','#a5b293',2.7));const sun=new T.DirectionalLight('#fff2d6',2.5);sun.position.set(-15,28,19);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-26,right:26,top:26,bottom:-26,near:1,far:75});sun.shadow.bias=-.0005;sun.shadow.normalBias=.025;scene.add(sun);
+ if(renderer){renderer.setPixelRatio(Math.min(devicePixelRatio,matchMedia('(pointer:coarse)').matches?1.25:1.5,Math.sqrt(2600000/(innerWidth*innerHeight))));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.2;container.appendChild(renderer.domElement);}
+ function cutaway(yes){if(renderer)renderer.shadowMap.needsUpdate=true;for(const w of wallMeshes){const h=yes?Math.min(w.full,.95):w.full;w.mesh.scale.y=h;w.mesh.position.y=w.base+h/2;}heads.forEach(m=>m.visible=!yes);windowParts.forEach(m=>m.visible=!yes);receptionDetails.forEach(m=>m.visible=!yes);labels.forEach(m=>m.visible=yes?!m.userData.door:!!m.userData.door);ceiling.visible=!yes;}
+ const routeGroup=new T.Group();scene.add(routeGroup);
+ function showRoute(points){while(routeGroup.children.length){const c=routeGroup.children[0];c.geometry?.dispose();c.material?.dispose();routeGroup.remove(c);}if(points.length<2)return;const vs=points.map(p=>{const [x,z]=toWorld(...p);return new T.Vector3(x,.12,z);}),line=new T.Line(new T.BufferGeometry().setFromPoints(vs),new T.LineDashedMaterial({color:'#b17455',dashSize:.16,gapSize:.1,transparent:true,opacity:.85}));line.computeLineDistances();line.userData.ignorePick=true;routeGroup.add(line);const end=vs.at(-1),marker=new T.Mesh(new T.RingGeometry(.18,.24,4),new T.MeshBasicMaterial({color:'#b17455',side:T.DoubleSide}));marker.rotation.x=-Math.PI/2;marker.position.copy(end);marker.position.y=.13;marker.userData.ignorePick=true;routeGroup.add(marker);}
+ const ray=new T.Raycaster(),ndc=new T.Vector2();
+ function pickFloor(clientX,clientY){if(!renderer)return null;const r=renderer.domElement.getBoundingClientRect();ndc.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);ray.setFromCamera(ndc,camera);const candidates=[];scene.traverse(o=>{if(!o.isMesh||o.userData.ignorePick||o.material.transparent&&o.material.opacity<.5)return;for(let p=o;p;p=p.parent)if(!p.visible)return;candidates.push(o);});const hit=ray.intersectObjects(candidates,false)[0];if(!hit?.object.userData.walkFloor)return null;return hit.point;}
+ cutaway(true);
+ return {renderer,scene,camera,cutaway,showRoute,pickFloor,render(){renderer?.render(scene,camera)},resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer?.setSize(innerWidth,innerHeight)}};
+}

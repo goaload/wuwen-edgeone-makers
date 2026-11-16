@@ -1,0 +1,1 @@
+export default {name:'无问律师事务所',languages:['zh'],skin:'',weather:null,start:{weather:'clear',time:'day'},dock:['lobby','meeting','talk1','open','map','about'],mailbox:{endpoint:'',email:'',turnstileSitekey:''},badge:true};
